@@ -6,6 +6,7 @@ import {
   FONT_CHANGE_PAIRS_START_MS,
 } from "@/lib/motionConstants";
 import type { FontEntry } from "@/lib/types";
+import { ENABLE_CUSTOM_TEXT } from "@/lib/previewFeatureFlags";
 import { AnimatedFontNameTab } from "./AnimatedFontNameTab";
 import { AnimatedSampleText } from "./AnimatedSampleText";
 import { BookmarkButton } from "./BookmarkButton";
@@ -16,11 +17,14 @@ import { SurpriseMeButton } from "./SurpriseMeButton";
 type FontPreviewProps = {
   font: FontEntry;
   previewText: string;
+  isCustomMode: boolean;
   isPreviewEditing: boolean;
   enablePreviewRoll: boolean;
+  textResetToken: number;
   onPreviewStartEdit: () => void;
   onPreviewTextChange: (text: string) => void;
   onPreviewEndEdit: (text: string) => void;
+  onPreviewReset: () => void;
   onSurpriseMe: () => void;
   onPairsWith?: (fontName: string) => void;
 };
@@ -28,11 +32,14 @@ type FontPreviewProps = {
 export function FontPreview({
   font,
   previewText,
+  isCustomMode,
   isPreviewEditing,
   enablePreviewRoll,
+  textResetToken,
   onPreviewStartEdit,
   onPreviewTextChange,
   onPreviewEndEdit,
+  onPreviewReset,
   onSurpriseMe,
   onPairsWith,
 }: FontPreviewProps) {
@@ -61,12 +68,24 @@ export function FontPreview({
           <AnimatedSampleText
             font={font}
             text={previewText}
+            isCustomMode={isCustomMode}
             isEditing={isPreviewEditing}
             enableRoll={enablePreviewRoll}
+            textResetToken={textResetToken}
             onStartEdit={() => onPreviewStartEdit()}
             onTextChange={onPreviewTextChange}
             onEndEdit={onPreviewEndEdit}
           />
+
+          {ENABLE_CUSTOM_TEXT && isCustomMode && !isPreviewEditing ? (
+            <button
+              type="button"
+              onClick={onPreviewReset}
+              className="text-[13px] font-medium tracking-[-0.13px] text-[#7d7a79] transition-colors hover:text-[#948f8e]"
+            >
+              reset text
+            </button>
+          ) : null}
 
           <ResolvingText
             text={font.pairsWith}

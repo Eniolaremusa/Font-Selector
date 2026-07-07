@@ -2,6 +2,7 @@
 
 import {
   useCallback,
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -15,9 +16,13 @@ import {
   PREVIEW_CURSOR_SPRING,
   PREVIEW_CURSOR_TRACKING_BASE_PX,
   PREVIEW_CURSOR_TRACKING_TIGHTEN_PX,
+  PREVIEW_CUSTOM_CROSSFADE_TRANSITION,
   PREVIEW_EDIT_ENTER_TRANSITION,
   PREVIEW_EDIT_EXIT_TRANSITION,
-  PREVIEW_HEIGHT_SPRING,
+  PREVIEW_HEIGHT_EXIT_FADE_MS,
+  PREVIEW_HEIGHT_EXIT_FADE_OVERLAP,
+  PREVIEW_HEIGHT_EXIT_FADE_TRANSITION,
+  PREVIEW_HEIGHT_RESIZE_TRANSITION,
   PREVIEW_LINE_HEIGHT,
   PREVIEW_PLACEHOLDER_TEXT,
   PREVIEW_ROLL_ENTER_OFFSET_MS,
@@ -25,25 +30,33 @@ import {
   getPreviewRollSpring,
 } from "@/lib/motionConstants";
 import { placeCaretAtEnd, placeCaretAtPoint } from "@/lib/placeCaretAtPoint";
+import { PREVIEW_MAX_HEIGHT_PX } from "@/lib/previewTextLimit";
 import { useGoogleFontReady } from "@/hooks/useGoogleFontReady";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
+import { usePreviewBoundaryResistance } from "@/hooks/usePreviewBoundaryResistance";
+import { useTextLimit } from "@/hooks/useTextLimit";
+import { ENABLE_CUSTOM_TEXT } from "@/lib/previewFeatureFlags";
 import type { FontEntry } from "@/lib/types";
 
 const PREVIEW_TEXT_CLASS =
   "line-clamp-2 w-full text-center text-[48px] font-medium leading-[1.2] text-white";
 
 const PREVIEW_EDIT_CLASS =
-  "line-clamp-2 w-full text-center text-[48px] font-medium leading-[1.2] text-white outline-none";
+  "w-full break-words text-center text-[48px] font-medium leading-[1.2] text-white outline-none";
 
 type AnimatedSampleTextProps = {
   font: FontEntry;
   text: string;
+  isCustomMode: boolean;
   isEditing: boolean;
   enableRoll: boolean;
+  textResetToken: number;
   onStartEdit: (clickPoint: { x: number; y: number }) => void;
   onTextChange: (text: string) => void;
   onEndEdit: (text: string) => void;
 };
+
+type HeightSequencePhase = "idle" | "fade-out" | "resize" | "roll-in";
 
 function getFontStack(targetFont: FontEntry): string {
   const family = getFontFamily(targetFont.id);
@@ -76,6 +89,21 @@ function PreviewTextDisplay({
 }: PreviewTextDisplayProps) {
   const isEmpty = displayText.trim().length === 0;
 
+  if (!ENABLE_CUSTOM_TEXT) {
+    return (
+      <motion.p
+        className={PREVIEW_TEXT_CLASS}
+        style={{
+          fontFamily: textStyle.fontFamily,
+          letterSpacing: textStyle.letterSpacing,
+          opacity: previewOpacity,
+        }}
+      >
+        {displayText}
+      </motion.p>
+    );
+  }
+
   return (
     <motion.p
       role="button"
@@ -103,15 +131,23 @@ function PreviewTextDisplay({
 export function AnimatedSampleText({
   font,
   text,
+  isCustomMode,
   isEditing,
   enableRoll,
+  textResetToken,
   onStartEdit,
   onTextChange,
   onEndEdit,
 }: AnimatedSampleTextProps) {
+  const customActive = ENABLE_CUSTOM_TEXT && isCustomMode;
+  const editingActive = ENABLE_CUSTOM_TEXT && isEditing;
+
   const [displayFont, setDisplayFont] = useState(font);
   const [displayText, setDisplayText] = useState(text);
   const [clipHeight, setClipHeight] = useState(PREVIEW_LINE_HEIGHT);
+  const [heightSequencePhase, setHeightSequencePhase] =
+    useState<HeightSequencePhase>("idle");
+  const [useTextCrossfade, setUseTextCrossfade] = useState(false);
 
   const targetFamily = getFontFamily(font.id);
   const isTargetFontReady = useGoogleFontReady(targetFamily);
@@ -121,6 +157,7 @@ export function AnimatedSampleText({
   const containerRef = useRef<HTMLDivElement>(null);
   const pendingFontRef = useRef<FontEntry | null>(null);
   const pendingTextRef = useRef<string | null>(null);
+  const pendingHeightRef = useRef<number | null>(null);
   const heightByKeyRef = useRef<Map<string, number>>(new Map());
   const previousFontIdRef = useRef<string | null>(null);
   const displayFontRef = useRef(displayFont);
@@ -129,8 +166,22 @@ export function AnimatedSampleText({
   const editCaretRef = useRef<{ x: number; y: number } | null>(null);
   const skipNextCaretPlacementRef = useRef(false);
   const editInitializedRef = useRef(false);
+  const heightSequencePhaseRef = useRef<HeightSequencePhase>("idle");
+  const lastTextResetTokenRef = useRef(textResetToken);
+  const useTextCrossfadeRef = useRef(false);
 
   const prefersReducedMotion = usePrefersReducedMotion();
+  const { frameX, frameScale, triggerResistance } =
+    usePreviewBoundaryResistance(prefersReducedMotion);
+  const { setValidText, handleInput, handlePaste, handleCompositionEnd } =
+    useTextLimit({
+      editableRef,
+      enabled: editingActive,
+      onAccept: onTextChange,
+      onReject: () => {
+        void triggerResistance();
+      },
+    });
 
   const rotateXTarget = useSpring(0, PREVIEW_CURSOR_SPRING);
   const rotateYTarget = useSpring(0, PREVIEW_CURSOR_SPRING);
@@ -148,6 +199,8 @@ export function AnimatedSampleText({
 
   displayFontRef.current = displayFont;
   displayTextRef.current = displayText;
+  heightSequencePhaseRef.current = heightSequencePhase;
+  useTextCrossfadeRef.current = useTextCrossfade;
 
   const measureText = text.trim().length > 0 ? text : "\u00a0";
 
@@ -172,38 +225,112 @@ export function AnimatedSampleText({
 
   const shouldAnimateEnter =
     enableRoll &&
+    heightSequencePhase === "idle" &&
     previousFontIdRef.current !== null &&
     (previousFontIdRef.current !== displayFont.id ||
       displayTextRef.current !== displayText);
 
-  const isTransitioning =
+  const isRollTransitioning =
     enableRoll &&
-    (font.id !== displayFont.id ||
+    !useTextCrossfade &&
+    (heightSequencePhase !== "idle" ||
+      font.id !== displayFont.id ||
       text !== displayText ||
       pendingFontRef.current !== null);
+
+  const isTransitioning =
+    isRollTransitioning ||
+    (customActive && !editingActive && font.id !== displayFont.id);
 
   const previewOpacity =
     displayFont.id !== font.id || isTargetFontReady ? 1 : 0;
 
-  const applyMeasuredHeight = useCallback(
+  const measureAndCacheHeight = useCallback(
     (targetFont: FontEntry, targetText: string) => {
-      const measuredHeight =
+      const rawHeight =
         measureRef.current?.offsetHeight ?? PREVIEW_LINE_HEIGHT;
+      const measuredHeight = Math.min(rawHeight, PREVIEW_MAX_HEIGHT_PX);
       heightByKeyRef.current.set(
         getMeasureCacheKey(targetFont.id, targetText),
         measuredHeight,
       );
-      setClipHeight(measuredHeight);
       return measuredHeight;
     },
     [],
   );
 
+  const startHeightSequence = useCallback(
+    (targetFont: FontEntry, targetText: string, targetHeight: number) => {
+      pendingFontRef.current = targetFont;
+      pendingTextRef.current = targetText;
+      pendingHeightRef.current = targetHeight;
+      setHeightSequencePhase("fade-out");
+    },
+    [],
+  );
+
+  const completeHeightResize = useCallback(() => {
+    if (!pendingFontRef.current) {
+      return;
+    }
+
+    setDisplayFont(pendingFontRef.current);
+    setDisplayText(pendingTextRef.current ?? text);
+    pendingFontRef.current = null;
+    pendingTextRef.current = null;
+    pendingHeightRef.current = null;
+    setHeightSequencePhase("roll-in");
+  }, [text]);
+
+  const completeHeightSequence = useCallback(() => {
+    setHeightSequencePhase("idle");
+    previousFontIdRef.current = displayFontRef.current.id;
+  }, []);
+
+  useEffect(() => {
+    if (!ENABLE_CUSTOM_TEXT) {
+      return;
+    }
+
+    if (textResetToken === lastTextResetTokenRef.current) {
+      return;
+    }
+
+    lastTextResetTokenRef.current = textResetToken;
+    setUseTextCrossfade(true);
+  }, [textResetToken]);
+
   useLayoutEffect(() => {
-    if (!enableRoll) {
+    if (editingActive) {
       setDisplayFont(font);
       setDisplayText(text);
-      applyMeasuredHeight(font, text);
+      const measuredHeight = measureAndCacheHeight(font, text);
+      setClipHeight(measuredHeight);
+      return;
+    }
+
+    if (customActive) {
+      if (!isTargetFontReady) {
+        return;
+      }
+
+      const nextHeight = measureAndCacheHeight(font, text);
+      setDisplayFont(font);
+      setDisplayText(text);
+      setClipHeight(nextHeight);
+      setHeightSequencePhase("idle");
+      return;
+    }
+
+    if (!enableRoll) {
+      if (!isTargetFontReady) {
+        return;
+      }
+
+      const nextHeight = measureAndCacheHeight(font, text);
+      setDisplayFont(font);
+      setDisplayText(text);
+      setClipHeight(nextHeight);
       return;
     }
 
@@ -211,13 +338,14 @@ export function AnimatedSampleText({
       return;
     }
 
-    applyMeasuredHeight(font, text);
+    const nextHeight = measureAndCacheHeight(font, text);
 
     if (isFirstMountRef.current) {
       isFirstMountRef.current = false;
       previousFontIdRef.current = font.id;
       setDisplayFont(font);
       setDisplayText(text);
+      setClipHeight(nextHeight);
       return;
     }
 
@@ -228,35 +356,76 @@ export function AnimatedSampleText({
       return;
     }
 
+    if (useTextCrossfade) {
+      setDisplayFont(font);
+      setDisplayText(text);
+      setClipHeight(nextHeight);
+      return;
+    }
+
+    if (heightSequencePhaseRef.current !== "idle") {
+      const pendingMatches =
+        pendingFontRef.current?.id === font.id &&
+        pendingTextRef.current === text;
+
+      if (!pendingMatches) {
+        startHeightSequence(font, text, nextHeight);
+      }
+      return;
+    }
+
     const currentHeight =
       heightByKeyRef.current.get(
         getMeasureCacheKey(displayFontRef.current.id, displayTextRef.current),
-      ) ?? PREVIEW_LINE_HEIGHT;
-
-    const nextHeight =
-      heightByKeyRef.current.get(getMeasureCacheKey(font.id, text)) ??
-      measureRef.current?.offsetHeight ??
-      PREVIEW_LINE_HEIGHT;
+      ) ?? clipHeight;
 
     if (nextHeight !== currentHeight) {
-      pendingFontRef.current = font;
-      pendingTextRef.current = text;
-      setClipHeight(nextHeight);
+      startHeightSequence(font, text, nextHeight);
       return;
     }
 
     setDisplayFont(font);
     setDisplayText(text);
-  }, [font, text, isTargetFontReady, enableRoll, applyMeasuredHeight]);
+  }, [
+    font,
+    text,
+    isTargetFontReady,
+    enableRoll,
+    customActive,
+    editingActive,
+    useTextCrossfade,
+    measureAndCacheHeight,
+    startHeightSequence,
+    clipHeight,
+  ]);
+
+  useEffect(() => {
+    if (heightSequencePhase !== "fade-out") {
+      return;
+    }
+
+    const resizeDelay = Math.round(
+      PREVIEW_HEIGHT_EXIT_FADE_MS * PREVIEW_HEIGHT_EXIT_FADE_OVERLAP,
+    );
+
+    const resizeTimer = window.setTimeout(() => {
+      if (pendingHeightRef.current !== null) {
+        setClipHeight(pendingHeightRef.current);
+      }
+      setHeightSequencePhase("resize");
+    }, resizeDelay);
+
+    return () => window.clearTimeout(resizeTimer);
+  }, [heightSequencePhase]);
 
   useLayoutEffect(() => {
-    if (isTransitioning || isEditing) {
+    if (isTransitioning || editingActive) {
       resetCursorMotion();
     }
-  }, [isTransitioning, isEditing, resetCursorMotion]);
+  }, [isTransitioning, editingActive, resetCursorMotion]);
 
   useLayoutEffect(() => {
-    if (!isEditing) {
+    if (!editingActive) {
       editInitializedRef.current = false;
       return;
     }
@@ -268,6 +437,7 @@ export function AnimatedSampleText({
     editInitializedRef.current = true;
     const element = editableRef.current;
     element.textContent = text;
+    setValidText(text);
     element.focus();
 
     if (skipNextCaretPlacementRef.current) {
@@ -283,30 +453,36 @@ export function AnimatedSampleText({
     } else {
       placeCaretAtEnd(element);
     }
-  }, [isEditing, text]);
+  }, [editingActive, text, setValidText]);
 
   const handleHeightAnimationComplete = () => {
-    if (!pendingFontRef.current) {
+    if (heightSequencePhaseRef.current === "resize") {
+      completeHeightResize();
+    }
+  };
+
+  const handleRollAnimationComplete = () => {
+    if (heightSequencePhaseRef.current === "roll-in") {
+      completeHeightSequence();
+    }
+  };
+
+  const handleCrossfadeComplete = () => {
+    if (!useTextCrossfadeRef.current) {
       return;
     }
 
-    setDisplayFont(pendingFontRef.current);
-    setDisplayText(pendingTextRef.current ?? text);
-    pendingFontRef.current = null;
-    pendingTextRef.current = null;
+    setUseTextCrossfade(false);
+    previousFontIdRef.current = font.id;
   };
 
   const handlePreviewClick = (event: React.MouseEvent<HTMLParagraphElement>) => {
-    if (isEditing || isTransitioning) {
+    if (!ENABLE_CUSTOM_TEXT || editingActive || isRollTransitioning) {
       return;
     }
 
     editCaretRef.current = { x: event.clientX, y: event.clientY };
     onStartEdit({ x: event.clientX, y: event.clientY });
-  };
-
-  const handleEditableInput = () => {
-    onTextChange(editableRef.current?.textContent ?? "");
   };
 
   const handleEditableBlur = () => {
@@ -328,7 +504,7 @@ export function AnimatedSampleText({
       if (
         prefersReducedMotion ||
         isTransitioning ||
-        isEditing ||
+        editingActive ||
         !containerRef.current
       ) {
         return;
@@ -352,7 +528,7 @@ export function AnimatedSampleText({
       );
     },
     [
-      isEditing,
+      editingActive,
       isTransitioning,
       prefersReducedMotion,
       rotateXTarget,
@@ -364,15 +540,26 @@ export function AnimatedSampleText({
   );
 
   const textStyle = {
-    fontFamily: getFontStack(isEditing ? font : displayFont),
+    fontFamily: getFontStack(editingActive ? font : displayFont),
     letterSpacing:
-      isEditing || prefersReducedMotion
+      editingActive || prefersReducedMotion || customActive
         ? `${PREVIEW_CURSOR_TRACKING_BASE_PX}px`
         : letterSpacing,
   };
 
   const rollItemKey = `${displayFont.id}::${displayText}`;
-  const usePreviewParallax = !isEditing && !prefersReducedMotion;
+  const crossfadeLayerKey = customActive
+    ? font.id
+    : `${font.id}::${text}`;
+  const usePreviewParallax =
+    !editingActive && !prefersReducedMotion && !customActive;
+
+  const heightTransition =
+    heightSequencePhase === "resize"
+      ? PREVIEW_HEIGHT_RESIZE_TRANSITION
+      : customActive || useTextCrossfade
+        ? PREVIEW_CUSTOM_CROSSFADE_TRANSITION
+        : { duration: 0 };
 
   const rollVariants = {
     enter: (height: number) => ({
@@ -390,6 +577,122 @@ export function AnimatedSampleText({
       y: -height,
       transition: getPreviewRollSpring("exit"),
     }),
+  };
+
+  const renderCrossfadeDisplay = () => (
+    <AnimatePresence mode="sync" initial={false}>
+      <motion.div
+        key={crossfadeLayerKey}
+        className="absolute inset-x-0 top-0 flex items-center justify-center"
+        style={{ minHeight: sentenceHeight }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={PREVIEW_CUSTOM_CROSSFADE_TRANSITION}
+        onAnimationComplete={(definition) => {
+          if (definition === "opacity" && useTextCrossfadeRef.current) {
+            handleCrossfadeComplete();
+          }
+        }}
+      >
+        <PreviewTextDisplay
+          displayText={text}
+          previewOpacity={previewOpacity}
+          textStyle={{
+            fontFamily: getFontStack(font),
+            letterSpacing: `${PREVIEW_CURSOR_TRACKING_BASE_PX}px`,
+          }}
+          onPreviewClick={handlePreviewClick}
+          onStartEdit={onStartEdit}
+          skipNextCaretPlacementRef={skipNextCaretPlacementRef}
+        />
+      </motion.div>
+    </AnimatePresence>
+  );
+
+  const renderRollDisplay = () => {
+    if (heightSequencePhase === "fade-out") {
+      return (
+        <motion.div
+          className="absolute inset-x-0 top-0 flex items-center justify-center"
+          style={{ height: sentenceHeight }}
+          initial={{ opacity: 1 }}
+          animate={{ opacity: 0 }}
+          transition={PREVIEW_HEIGHT_EXIT_FADE_TRANSITION}
+        >
+          <PreviewTextDisplay
+            displayText={displayText}
+            previewOpacity={previewOpacity}
+            textStyle={textStyle}
+            onPreviewClick={handlePreviewClick}
+            onStartEdit={onStartEdit}
+            skipNextCaretPlacementRef={skipNextCaretPlacementRef}
+          />
+        </motion.div>
+      );
+    }
+
+    if (heightSequencePhase === "roll-in") {
+      return (
+        <motion.div
+          key={rollItemKey}
+          custom={sentenceHeight}
+          className="absolute inset-x-0 top-0 flex items-center justify-center"
+          style={{ height: sentenceHeight }}
+          variants={rollVariants}
+          initial="enter"
+          animate="center"
+          onAnimationComplete={handleRollAnimationComplete}
+        >
+          <PreviewTextDisplay
+            displayText={displayText}
+            previewOpacity={previewOpacity}
+            textStyle={textStyle}
+            onPreviewClick={handlePreviewClick}
+            onStartEdit={onStartEdit}
+            skipNextCaretPlacementRef={skipNextCaretPlacementRef}
+          />
+        </motion.div>
+      );
+    }
+
+    if (heightSequencePhase === "resize") {
+      return null;
+    }
+
+    if (useTextCrossfade) {
+      return renderCrossfadeDisplay();
+    }
+
+    return (
+      <AnimatePresence
+        mode="sync"
+        initial={false}
+        onExitComplete={() => {
+          previousFontIdRef.current = displayFont.id;
+        }}
+      >
+        <motion.div
+          key={rollItemKey}
+          custom={sentenceHeight}
+          className="absolute inset-x-0 top-0 flex items-center justify-center"
+          style={{ height: sentenceHeight }}
+          variants={rollVariants}
+          initial={shouldAnimateEnter ? "enter" : false}
+          animate="center"
+          exit="exit"
+        >
+          <PreviewTextDisplay
+            displayText={displayText}
+            previewOpacity={previewOpacity}
+            textStyle={textStyle}
+            onPreviewClick={handlePreviewClick}
+            onStartEdit={onStartEdit}
+            skipNextCaretPlacementRef={skipNextCaretPlacementRef}
+          />
+        </motion.div>
+      </AnimatePresence>
+    );
   };
 
   return (
@@ -417,8 +720,12 @@ export function AnimatedSampleText({
             className="relative w-full overflow-hidden"
             animate={{ height: clipHeight }}
             initial={false}
-            transition={{ height: PREVIEW_HEIGHT_SPRING }}
-            onAnimationComplete={() => handleHeightAnimationComplete()}
+            transition={{ height: heightTransition }}
+            onAnimationComplete={(definition) => {
+              if (definition === "height") {
+                handleHeightAnimationComplete();
+              }
+            }}
           >
             {isTargetFontReady ? (
               <p
@@ -435,17 +742,17 @@ export function AnimatedSampleText({
             ) : null}
 
             <AnimatePresence mode="wait" initial={false}>
-              {isEditing ? (
+              {editingActive ? (
                 <motion.div
                   key="preview-editor"
-                  className="absolute inset-x-0 top-0 flex items-center justify-center"
-                  style={{ minHeight: clipHeight }}
+                  className="absolute inset-x-0 top-0 flex w-full items-center justify-center"
+                  style={{ minHeight: clipHeight, x: frameX, scale: frameScale }}
                   initial={{ opacity: 0.72 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0.72 }}
                   transition={PREVIEW_EDIT_EXIT_TRANSITION}
                 >
-                  <div
+                  <motion.div
                     ref={editableRef}
                     role="textbox"
                     contentEditable
@@ -461,7 +768,9 @@ export function AnimatedSampleText({
                       unicodeBidi: "plaintext",
                       textAlign: "center",
                     }}
-                    onInput={handleEditableInput}
+                    onInput={handleInput}
+                    onPaste={handlePaste}
+                    onCompositionEnd={handleCompositionEnd}
                     onBlur={handleEditableBlur}
                     onKeyDown={handleEditableKeyDown}
                   />
@@ -476,49 +785,27 @@ export function AnimatedSampleText({
                   className="absolute inset-x-0 top-0"
                   style={{ minHeight: clipHeight }}
                 >
-                  {enableRoll ? (
-                    <AnimatePresence
-                      mode="sync"
-                      initial={false}
-                      onExitComplete={() => {
-                        previousFontIdRef.current = displayFont.id;
-                      }}
-                    >
-                      <motion.div
-                        key={rollItemKey}
-                        custom={sentenceHeight}
-                        className="absolute inset-x-0 top-0 flex items-center justify-center"
-                        style={{ height: sentenceHeight }}
-                        variants={rollVariants}
-                        initial={shouldAnimateEnter ? "enter" : false}
-                        animate="center"
-                        exit="exit"
-                      >
-                        <PreviewTextDisplay
-                          displayText={displayText}
-                          previewOpacity={previewOpacity}
-                          textStyle={textStyle}
-                          onPreviewClick={handlePreviewClick}
-                          onStartEdit={onStartEdit}
-                          skipNextCaretPlacementRef={skipNextCaretPlacementRef}
-                        />
-                      </motion.div>
-                    </AnimatePresence>
-                  ) : (
-                    <div
-                      className="flex items-center justify-center"
-                      style={{ minHeight: sentenceHeight }}
-                    >
-                      <PreviewTextDisplay
-                        displayText={displayText}
-                        previewOpacity={previewOpacity}
-                        textStyle={textStyle}
-                        onPreviewClick={handlePreviewClick}
-                        onStartEdit={onStartEdit}
-                        skipNextCaretPlacementRef={skipNextCaretPlacementRef}
-                      />
-                    </div>
-                  )}
+                  {ENABLE_CUSTOM_TEXT && (customActive || useTextCrossfade)
+                    ? renderCrossfadeDisplay()
+                    : enableRoll
+                      ? renderRollDisplay()
+                      : (
+                        <div
+                          className="flex items-center justify-center"
+                          style={{ minHeight: sentenceHeight }}
+                        >
+                          <PreviewTextDisplay
+                            displayText={displayText}
+                            previewOpacity={previewOpacity}
+                            textStyle={textStyle}
+                            onPreviewClick={handlePreviewClick}
+                            onStartEdit={onStartEdit}
+                            skipNextCaretPlacementRef={
+                              skipNextCaretPlacementRef
+                            }
+                          />
+                        </div>
+                      )}
                 </motion.div>
               )}
             </AnimatePresence>

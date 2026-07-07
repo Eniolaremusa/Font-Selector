@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { getRandomFont } from "@/lib/getRandomFont";
 import {
   findFontByName,
@@ -8,6 +8,7 @@ import {
   matchFont,
 } from "@/lib/matchFont";
 import type { AxisKey, ControlValues, FontEntry } from "@/lib/types";
+import { ENABLE_CUSTOM_TEXT } from "@/lib/previewFeatureFlags";
 import { ControlPanel } from "./ControlPanel";
 import { FontPreview } from "./FontPreview";
 
@@ -19,8 +20,6 @@ const INITIAL_VALUES: ControlValues = {
   width: 56,
   serifness: "Any",
 };
-
-type PreviewSource = "curated" | "custom";
 
 function fontToControlValues(font: FontEntry): ControlValues {
   return {
@@ -43,9 +42,12 @@ export function FontSelector() {
     useState<ControlValues>(INITIAL_VALUES);
   const [recentAxes, setRecentAxes] = useState<AxisKey[]>([]);
   const [choreographyToken, setChoreographyToken] = useState(0);
-  const [previewSource, setPreviewSource] = useState<PreviewSource>("curated");
+  const [isCustomMode, setIsCustomMode] = useState(false);
   const [customPreviewText, setCustomPreviewText] = useState("");
   const [isPreviewEditing, setIsPreviewEditing] = useState(false);
+  const [textResetToken, setTextResetToken] = useState(0);
+
+  const editBaselineRef = useRef("");
 
   const committedFont = useMemo(
     () => matchFont(committedValues, recentAxes),
@@ -57,17 +59,16 @@ export function FontSelector() {
     [values, recentAxes],
   );
 
-  const usesLivePreview = isPreviewEditing || previewSource === "custom";
-  const previewFont = usesLivePreview ? liveFont : committedFont;
+  const previewFont =
+    ENABLE_CUSTOM_TEXT && (isCustomMode || isPreviewEditing)
+      ? liveFont
+      : committedFont;
   const previewText =
-    previewSource === "custom" ? customPreviewText : committedFont.sentence;
-  const enablePreviewRoll = previewSource === "curated" && !isPreviewEditing;
-
-  const resetPreviewToCurated = () => {
-    setIsPreviewEditing(false);
-    setPreviewSource("curated");
-    setCustomPreviewText("");
-  };
+    ENABLE_CUSTOM_TEXT && isCustomMode
+      ? customPreviewText
+      : committedFont.sentence;
+  const enablePreviewRoll =
+    !ENABLE_CUSTOM_TEXT || (!isCustomMode && !isPreviewEditing);
 
   const handleChoreographyInterrupt = () => {
     setChoreographyToken(0);
@@ -78,7 +79,6 @@ export function FontSelector() {
   };
 
   const handleAxisCommit = (axis: AxisKey, value: number) => {
-    resetPreviewToCurated();
     setChoreographyToken(0);
     setValues((current) => {
       const nextValues = { ...current, [axis]: value };
@@ -93,7 +93,6 @@ export function FontSelector() {
   };
 
   const handleSerifnessChange = (serifness: ControlValues["serifness"]) => {
-    resetPreviewToCurated();
     setChoreographyToken(0);
     setValues((current) => {
       const next = { ...current, serifness };
@@ -104,7 +103,6 @@ export function FontSelector() {
   };
 
   const applyFontProgrammatically = (font: FontEntry) => {
-    resetPreviewToCurated();
     const nextValues = fontToControlValues(font);
     setRecentAxes([]);
     setChoreographyToken((current) => current + 1);
@@ -128,21 +126,53 @@ export function FontSelector() {
   };
 
   const handlePreviewStartEdit = () => {
-    if (previewSource !== "custom") {
-      setCustomPreviewText(committedFont.sentence);
+    if (!ENABLE_CUSTOM_TEXT) {
+      return;
     }
-    setPreviewSource("custom");
+    const baseline = isCustomMode
+      ? customPreviewText
+      : committedFont.sentence;
+    editBaselineRef.current = baseline;
+
+    if (!isCustomMode) {
+      setCustomPreviewText(baseline);
+    }
+
     setIsPreviewEditing(true);
   };
 
   const handlePreviewTextChange = (text: string) => {
+    if (!ENABLE_CUSTOM_TEXT) {
+      return;
+    }
     setCustomPreviewText(text);
+
+    if (text !== editBaselineRef.current) {
+      setIsCustomMode(true);
+    }
   };
 
   const handlePreviewEndEdit = (text: string) => {
+    if (!ENABLE_CUSTOM_TEXT) {
+      return;
+    }
     setIsPreviewEditing(false);
-    setCustomPreviewText(text);
-    setPreviewSource("custom");
+
+    if (text !== editBaselineRef.current) {
+      setIsCustomMode(true);
+      setCustomPreviewText(text);
+    } else if (!isCustomMode) {
+      setCustomPreviewText("");
+    }
+  };
+
+  const handlePreviewReset = () => {
+    if (!ENABLE_CUSTOM_TEXT) {
+      return;
+    }
+    setIsCustomMode(false);
+    setCustomPreviewText("");
+    setTextResetToken((current) => current + 1);
   };
 
   return (
@@ -150,11 +180,14 @@ export function FontSelector() {
       <FontPreview
         font={previewFont}
         previewText={previewText}
+        isCustomMode={isCustomMode}
         isPreviewEditing={isPreviewEditing}
         enablePreviewRoll={enablePreviewRoll}
+        textResetToken={textResetToken}
         onPreviewStartEdit={handlePreviewStartEdit}
         onPreviewTextChange={handlePreviewTextChange}
         onPreviewEndEdit={handlePreviewEndEdit}
+        onPreviewReset={handlePreviewReset}
         onSurpriseMe={handleSurpriseMe}
         onPairsWith={handlePairsWith}
       />

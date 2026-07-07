@@ -88,6 +88,41 @@ export const PREVIEW_EDIT_EXIT_TRANSITION = {
   ease: "easeOut" as const,
 };
 
+// Custom mode — typeface / text crossfade (no odometer roll).
+export const PREVIEW_CUSTOM_CROSSFADE_MS = 150;
+
+export const PREVIEW_CUSTOM_CROSSFADE_TRANSITION = {
+  duration: PREVIEW_CUSTOM_CROSSFADE_MS / 1000,
+  ease: "easeOut" as const,
+};
+
+// Default mode — sequenced height change when line count differs (1↔2 lines).
+export const PREVIEW_HEIGHT_EXIT_FADE_MS = 90;
+export const PREVIEW_HEIGHT_EXIT_FADE_OVERLAP = 0.6;
+export const PREVIEW_HEIGHT_RESIZE_MS = 150;
+
+export const PREVIEW_HEIGHT_EXIT_FADE_TRANSITION = {
+  duration: PREVIEW_HEIGHT_EXIT_FADE_MS / 1000,
+  ease: "easeOut" as const,
+};
+
+export const PREVIEW_HEIGHT_RESIZE_TRANSITION = {
+  duration: PREVIEW_HEIGHT_RESIZE_MS / 1000,
+  ease: "easeOut" as const,
+};
+
+// Editable preview — two-line boundary resistance
+export const PREVIEW_BOUNDARY_NUDGE_PX = 3;
+export const PREVIEW_BOUNDARY_CARET_NUDGE_PX = 2;
+export const PREVIEW_BOUNDARY_SCALE = 0.99;
+
+export const PREVIEW_BOUNDARY_SPRING = {
+  type: "spring" as const,
+  stiffness: 620,
+  damping: 30,
+  mass: 0.58,
+};
+
 // Container height ease when sentence line count changes.
 export const PREVIEW_HEIGHT_SPRING = {
   type: "spring" as const,
