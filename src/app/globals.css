@@ -1,1 +1,57 @@
 @import "tailwindcss";
+
+:root {
+  --background: #0c0b0b;
+  --foreground: #ffffff;
+  --muted: #7d7a79;
+  --muted-soft: #948f8e;
+  --preview-bg: #0c0b0b;
+  --control-bg: #0e0d0d;
+  --pairs-badge: #141313;
+  --surface: #181717;
+  --surface-elevated: #232121;
+  --border: #151313;
+  --border-subtle: #232121;
+  --slider-fill: #3a3838;
+  --slider-thumb: #858585;
+  --dot: #423f3f;
+  --toggle-active: #373535;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  margin: 0;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 32px;
+  background: transparent;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 2px;
+  height: 16px;
+  background: transparent;
+  border: none;
+}
+
+input[type="range"]::-moz-range-track {
+  height: 32px;
+  background: transparent;
+  border: none;
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 2px;
+  height: 16px;
+  border: none;
+  background: transparent;
+}
