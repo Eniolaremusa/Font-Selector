@@ -92,15 +92,43 @@ export function getNameResolveDurationMs(textLength: number): number {
   );
 }
 
-// Sliders — fluid drag, mechanical snap on release
+// Sliders — fluid drag, physical travel on track click / choreography
 export const SLIDER_SNAP_POINTS = [0, 20, 30, 40, 50, 60, 70, 80, 90, 100];
 
-export const SLIDER_SNAP_SPRING = {
+export const SLIDER_STIFFNESS = 210;
+export const SLIDER_DAMPING = 34;
+export const SLIDER_MASS = 1;
+export const SNAP_ATTRACTION = 1.25;
+export const SETTLE_AMOUNT = 0.14;
+export const TRAVEL_DURATION_MULTIPLIER = 1.72;
+
+export const SLIDER_FILL_STIFFNESS = 155;
+export const SLIDER_FILL_DAMPING = 32;
+export const SLIDER_FILL_MASS = 1.12;
+
+export function getSliderTravelSpring(distance: number) {
+  const absDistance = Math.min(Math.abs(distance), 100);
+  const travelScale =
+    1 +
+    (TRAVEL_DURATION_MULTIPLIER - 1) * Math.pow(absDistance / 100, 0.42);
+
+  return {
+    type: "spring" as const,
+    stiffness: SLIDER_STIFFNESS / travelScale,
+    damping: SLIDER_DAMPING * (1 + SETTLE_AMOUNT) + SNAP_ATTRACTION * 3.5,
+    mass: SLIDER_MASS * travelScale,
+  };
+}
+
+export const SLIDER_FILL_SPRING = {
   type: "spring" as const,
-  stiffness: 520,
-  damping: 28,
-  mass: 0.85,
+  stiffness: SLIDER_FILL_STIFFNESS,
+  damping: SLIDER_FILL_DAMPING,
+  mass: SLIDER_FILL_MASS,
 };
+
+/** @deprecated Use getSliderTravelSpring — kept for any legacy references */
+export const SLIDER_SNAP_SPRING = getSliderTravelSpring(20);
 
 export const SLIDER_DRAG_SPRING = {
   type: "spring" as const,

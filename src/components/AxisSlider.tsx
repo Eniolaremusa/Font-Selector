@@ -1,21 +1,23 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   animate,
   motion,
   useMotionValue,
   useSpring,
   useTransform,
+  type AnimationPlaybackControls,
 } from "motion/react";
 import {
+  FONT_CHANGE_CONTROLS_START_MS,
+  getSliderTravelSpring,
   SLIDER_DRAG_SPRING,
+  SLIDER_FILL_SPRING,
   SLIDER_SNAP_POINTS,
-  SLIDER_SNAP_SPRING,
   SLIDER_THUMB_FADE,
   SLIDER_THUMB_INSET,
   SLIDER_THUMB_WIDTH,
-  SURPRISE_CHOREOGRAPHY_TRANSITION,
 } from "@/lib/motionConstants";
 
 type TrackLabelsProps = {
@@ -74,6 +76,12 @@ function snapValue(value: number): number {
   );
 }
 
+function clampPercent(value: number): number {
+  return Math.max(0, Math.min(100, value));
+}
+
+const DRAG_THRESHOLD_PX = 4;
+
 export function AxisSlider({
   label,
   minLabel,
@@ -89,65 +97,117 @@ export function AxisSlider({
   const [isDragging, setIsDragging] = useState(false);
   const [dragValue, setDragValue] = useState<number | null>(null);
 
-  const percentMotion = useMotionValue(value);
-  const percentSpring = useSpring(
-    percentMotion,
-    isDragging ? SLIDER_DRAG_SPRING : SLIDER_SNAP_SPRING,
+  const thumbPosition = useMotionValue(value);
+  const fillPosition = useSpring(
+    thumbPosition,
+    isDragging ? SLIDER_DRAG_SPRING : SLIDER_FILL_SPRING,
   );
-  const fillWidth = useTransform(percentSpring, (v) => `${Math.max(0, Math.min(100, v))}%`);
-  const activeTrackWidth = useTransform(percentSpring, (v) => {
-    const clamped = Math.max(0, Math.min(100, v));
+
+  const fillWidth = useTransform(fillPosition, (v) => `${clampPercent(v)}%`);
+  const activeTrackWidth = useTransform(fillPosition, (v) => {
+    const clamped = clampPercent(v);
     return clamped > 0 ? `${(100 / clamped) * 100}%` : "100%";
   });
+
   const showThumb = isHovered || isDragging;
   const inputValue = dragValue ?? value;
-  const choreographyAnimationRef = useRef<ReturnType<typeof animate> | null>(null);
+  const travelAnimationRef = useRef<AnimationPlaybackControls | null>(null);
+  const isMountedRef = useRef(false);
+  const isDragInteractionRef = useRef(false);
+  const pendingTrackValueRef = useRef<number | null>(null);
+  const pointerOriginXRef = useRef(0);
+
+  const stopTravel = useCallback(() => {
+    travelAnimationRef.current?.stop();
+    travelAnimationRef.current = null;
+  }, []);
+
+  const travelTo = useCallback(
+    (target: number, delay = 0) => {
+      stopTravel();
+
+      const from = thumbPosition.get();
+      if (Math.abs(from - target) < 0.01) {
+        thumbPosition.set(target);
+        return;
+      }
+
+      travelAnimationRef.current = animate(thumbPosition, target, {
+        ...getSliderTravelSpring(target - from),
+        delay,
+      });
+    },
+    [stopTravel, thumbPosition],
+  );
 
   useEffect(() => {
-    if (isDragging || choreographyToken > 0) {
+    if (!isMountedRef.current) {
+      isMountedRef.current = true;
+      thumbPosition.set(value);
       return;
     }
 
-    percentMotion.set(value);
-  }, [value, isDragging, choreographyToken, percentMotion]);
-
-  useEffect(() => {
-    if (choreographyToken === 0) {
+    if (isDragging) {
       return;
     }
 
-    choreographyAnimationRef.current?.stop();
-    choreographyAnimationRef.current = animate(
-      percentMotion,
-      value,
-      SURPRISE_CHOREOGRAPHY_TRANSITION,
-    );
+    if (choreographyToken > 0) {
+      travelTo(value, FONT_CHANGE_CONTROLS_START_MS / 1000);
+      return;
+    }
 
-    return () => {
-      choreographyAnimationRef.current?.stop();
-    };
-  }, [choreographyToken, percentMotion, value]);
+    travelTo(value);
+  }, [value, isDragging, choreographyToken, travelTo, thumbPosition]);
 
-  const handlePointerDown = () => {
+  const handlePointerDown = (event: React.PointerEvent<HTMLInputElement>) => {
     onChoreographyInterrupt?.();
-    choreographyAnimationRef.current?.stop();
+    stopTravel();
+    isDragInteractionRef.current = false;
+    pendingTrackValueRef.current = null;
+    pointerOriginXRef.current = event.clientX;
     setIsDragging(true);
     setDragValue(value);
   };
 
+  const handlePointerMove = (event: React.PointerEvent<HTMLInputElement>) => {
+    if (
+      !isDragInteractionRef.current &&
+      Math.abs(event.clientX - pointerOriginXRef.current) >= DRAG_THRESHOLD_PX
+    ) {
+      isDragInteractionRef.current = true;
+
+      if (pendingTrackValueRef.current !== null) {
+        thumbPosition.set(pendingTrackValueRef.current);
+      }
+    }
+  };
+
   const handleInput = (raw: number) => {
     setDragValue(raw);
-    percentMotion.set(raw);
     onChange(raw);
+
+    if (isDragInteractionRef.current) {
+      thumbPosition.set(raw);
+      return;
+    }
+
+    pendingTrackValueRef.current = raw;
   };
 
   const handlePointerUp = (raw: number) => {
-    const snapped = snapValue(raw);
+    const snapped = snapValue(
+      isDragInteractionRef.current
+        ? raw
+        : (pendingTrackValueRef.current ?? raw),
+    );
+
     setIsDragging(false);
     setDragValue(null);
-    percentMotion.set(snapped);
+    isDragInteractionRef.current = false;
+    pendingTrackValueRef.current = null;
     onChange(snapped);
     onCommit?.(snapped);
+    travelTo(snapped);
   };
 
   return (
@@ -203,6 +263,7 @@ export function AxisSlider({
             handleInput(Number(event.currentTarget.value))
           }
           onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
           onPointerUp={(event) => {
             handlePointerUp(Number(event.currentTarget.value));
           }}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { getGoogleFontsHref } from "@/lib/fontFamilies";
+import { loadGoogleFont } from "@/lib/loadGoogleFont";
 
 type GoogleFontLoaderProps = {
   family: string;
@@ -9,17 +9,7 @@ type GoogleFontLoaderProps = {
 
 export function GoogleFontLoader({ family }: GoogleFontLoaderProps) {
   useEffect(() => {
-    const id = `google-font-${family.replace(/\s+/g, "-").toLowerCase()}`;
-
-    if (document.getElementById(id)) {
-      return;
-    }
-
-    const link = document.createElement("link");
-    link.id = id;
-    link.rel = "stylesheet";
-    link.href = getGoogleFontsHref(family);
-    document.head.appendChild(link);
+    void loadGoogleFont(family);
   }, [family]);
 
   return null;

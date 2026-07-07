@@ -14,6 +14,7 @@ import {
   PREVIEW_ROLL_HOLD_MS,
   PREVIEW_ROLL_SPRING,
 } from "@/lib/motionConstants";
+import { useGoogleFontReady } from "@/hooks/useGoogleFontReady";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import type { FontEntry } from "@/lib/types";
 
@@ -32,6 +33,8 @@ function getFontStack(targetFont: FontEntry): string {
 export function AnimatedSampleText({ font }: AnimatedSampleTextProps) {
   const [displayFont, setDisplayFont] = useState(font);
   const [clipHeight, setClipHeight] = useState(PREVIEW_LINE_HEIGHT);
+  const targetFamily = getFontFamily(font.id);
+  const isTargetFontReady = useGoogleFontReady(targetFamily);
 
   const measureRef = useRef<HTMLParagraphElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -80,6 +83,8 @@ export function AnimatedSampleText({ font }: AnimatedSampleTextProps) {
     previousFontIdRef.current !== displayFont.id;
   const isTransitioning =
     font.id !== displayFont.id || pendingFontRef.current !== null;
+  const previewOpacity =
+    displayFont.id !== font.id || isTargetFontReady ? 1 : 0;
 
   const handlePointerMove = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
@@ -124,6 +129,10 @@ export function AnimatedSampleText({ font }: AnimatedSampleTextProps) {
   );
 
   useLayoutEffect(() => {
+    if (!isTargetFontReady) {
+      return;
+    }
+
     const measuredHeight =
       measureRef.current?.offsetHeight ?? PREVIEW_LINE_HEIGHT;
     heightByFontIdRef.current.set(font.id, measuredHeight);
@@ -153,7 +162,7 @@ export function AnimatedSampleText({ font }: AnimatedSampleTextProps) {
 
     setDisplayFont(font);
     setClipHeight(measuredHeight);
-  }, [font]);
+  }, [font, isTargetFontReady]);
 
   useLayoutEffect(() => {
     if (isTransitioning) {
@@ -198,17 +207,19 @@ export function AnimatedSampleText({ font }: AnimatedSampleTextProps) {
           transition={{ height: PREVIEW_HEIGHT_SPRING }}
           onAnimationComplete={() => handleHeightAnimationComplete()}
         >
-          <p
-            ref={measureRef}
-            className={`${PREVIEW_TEXT_CLASS} pointer-events-none invisible absolute inset-x-0 top-0`}
-            style={{
-              fontFamily: getFontStack(font),
-              letterSpacing: `${PREVIEW_CURSOR_TRACKING_BASE_PX}px`,
-            }}
-            aria-hidden="true"
-          >
-            {font.sentence}
-          </p>
+          {isTargetFontReady ? (
+            <p
+              ref={measureRef}
+              className={`${PREVIEW_TEXT_CLASS} pointer-events-none invisible absolute inset-x-0 top-0`}
+              style={{
+                fontFamily: getFontStack(font),
+                letterSpacing: `${PREVIEW_CURSOR_TRACKING_BASE_PX}px`,
+              }}
+              aria-hidden="true"
+            >
+              {font.sentence}
+            </p>
+          ) : null}
 
           <AnimatePresence
             mode="sync"
@@ -250,6 +261,7 @@ export function AnimatedSampleText({ font }: AnimatedSampleTextProps) {
                   letterSpacing: prefersReducedMotion
                     ? `${PREVIEW_CURSOR_TRACKING_BASE_PX}px`
                     : letterSpacing,
+                  opacity: previewOpacity,
                 }}
               >
                 {displayFont.sentence}
