@@ -11,8 +11,9 @@ import {
   PREVIEW_CURSOR_TRACKING_TIGHTEN_PX,
   PREVIEW_HEIGHT_SPRING,
   PREVIEW_LINE_HEIGHT,
+  PREVIEW_ROLL_ENTER_OFFSET_MS,
   PREVIEW_ROLL_HOLD_MS,
-  PREVIEW_ROLL_SPRING,
+  getPreviewRollSpring,
 } from "@/lib/motionConstants";
 import { useGoogleFontReady } from "@/hooks/useGoogleFontReady";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
@@ -237,17 +238,19 @@ export function AnimatedSampleText({ font }: AnimatedSampleTextProps) {
                 enter: (height: number) => ({
                   y: height,
                   transition: {
-                    ...PREVIEW_ROLL_SPRING,
-                    delay: PREVIEW_ROLL_HOLD_MS / 1000,
+                    ...getPreviewRollSpring("enter"),
+                    delay:
+                      (PREVIEW_ROLL_HOLD_MS + PREVIEW_ROLL_ENTER_OFFSET_MS) /
+                      1000,
                   },
                 }),
                 center: {
                   y: 0,
-                  transition: PREVIEW_ROLL_SPRING,
+                  transition: getPreviewRollSpring("center"),
                 },
                 exit: (height: number) => ({
                   y: -height,
-                  transition: PREVIEW_ROLL_SPRING,
+                  transition: getPreviewRollSpring("exit"),
                 }),
               }}
               initial={shouldAnimateEnter ? "enter" : false}

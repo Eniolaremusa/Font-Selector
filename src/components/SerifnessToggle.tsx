@@ -1,12 +1,15 @@
 "use client";
 
-import { LayoutGroup, motion, type Transition } from "motion/react";
+import { LayoutGroup, motion } from "motion/react";
 import {
+  FONT_CHANGE_CONTROLS_START_MS,
+  getSegmentSpring,
   SERIFNESS_ACTIVE_COLOR,
   SERIFNESS_INACTIVE_COLOR,
   SERIFNESS_LABEL_SPRING,
-  SERIFNESS_PILL_SPRING,
-  SURPRISE_CHOREOGRAPHY_TRANSITION,
+  SERIFNESS_PILL_INSET_PX,
+  SERIFNESS_PILL_RADIUS_PX,
+  SERIFNESS_CONTAINER_RADIUS_PX,
 } from "@/lib/motionConstants";
 import type { Serifness } from "@/lib/types";
 
@@ -23,15 +26,18 @@ export function SerifnessToggle({
   choreographyToken = 0,
   onChange,
 }: SerifnessToggleProps) {
-  const pillTransition: Transition =
-    choreographyToken > 0
-      ? SURPRISE_CHOREOGRAPHY_TRANSITION
-      : SERIFNESS_PILL_SPRING;
+  const choreographyDelay =
+    choreographyToken > 0 ? FONT_CHANGE_CONTROLS_START_MS / 1000 : 0;
 
-  const labelTransition: Transition =
-    choreographyToken > 0
-      ? SURPRISE_CHOREOGRAPHY_TRANSITION
-      : SERIFNESS_LABEL_SPRING;
+  const pillTransition = {
+    ...getSegmentSpring(),
+    delay: choreographyDelay,
+  };
+
+  const labelTransition = {
+    ...SERIFNESS_LABEL_SPRING,
+    delay: choreographyDelay,
+  };
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-[6px]">
@@ -39,9 +45,15 @@ export function SerifnessToggle({
         Serifness
       </p>
 
-      <div className="flex h-[32px] w-full items-center rounded-[12px] border border-[#232121] bg-[#181717] px-1 py-2">
+      <div
+        className="flex h-[32px] w-full items-center border border-[#232121] bg-[#181717]"
+        style={{
+          borderRadius: SERIFNESS_CONTAINER_RADIUS_PX,
+          padding: SERIFNESS_PILL_INSET_PX,
+        }}
+      >
         <LayoutGroup id="serifness-toggle">
-          <div className="relative flex w-full gap-1">
+          <div className="relative flex h-full w-full">
             {options.map((option) => {
               const isActive = option === value;
 
@@ -50,12 +62,13 @@ export function SerifnessToggle({
                   key={option}
                   type="button"
                   onClick={() => onChange(option)}
-                  className="relative flex flex-1 items-center justify-center rounded-[8px] px-3 py-1"
+                  className="relative flex h-full flex-1 items-center justify-center px-3"
                 >
                   {isActive ? (
                     <motion.div
                       layoutId="serifness-pill"
-                      className="absolute inset-0 rounded-[8px] bg-[#373535]"
+                      className="absolute inset-0 bg-[#373535]"
+                      style={{ borderRadius: SERIFNESS_PILL_RADIUS_PX }}
                       transition={pillTransition}
                     />
                   ) : null}

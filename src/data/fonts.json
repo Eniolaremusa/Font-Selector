@@ -6,7 +6,7 @@
     "presence": { "min": "Quiet", "max": "Loud" },
     "width": { "min": "Slim", "max": "Wide" }
   },
-  "serifnessOptions": ["Sans", "Serif", "Any"],
+  "serifnessOptions": ["Any", "Sans", "Serif"],
   "fonts": [
     { "id": "jetbrains-mono", "name": "JetBrains Mono", "warmth": 8, "personality": 30, "structure": 6, "presence": 25, "width": 48, "serifness": "Sans", "pairsWith": "Inter", "sentence": "Honey never spoils." },
     { "id": "ibm-plex-sans", "name": "IBM Plex Sans", "warmth": 12, "personality": 12, "structure": 5, "presence": 22, "width": 46, "serifness": "Sans", "pairsWith": "IBM Plex Mono", "sentence": "Octopuses have three hearts." },

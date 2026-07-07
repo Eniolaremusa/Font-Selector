@@ -11,10 +11,10 @@ export const PREVIEW_LINE_HEIGHT = Math.ceil(
 // Preview tick leads; name resolve and control movement trail with overlap.
 export const FONT_CHANGE_BUDGET_MS = 700;
 
-export const FONT_CHANGE_PREVIEW_HOLD_MS = 60;
+export const FONT_CHANGE_PREVIEW_HOLD_MS = 75;
 
-// Scheduling estimate for preview roll settle (tuned to PREVIEW_ROLL_SPRING).
-export const FONT_CHANGE_PREVIEW_ROLL_MS = 300;
+// Scheduling estimate for preview roll settle (tuned to preview roll spring).
+export const FONT_CHANGE_PREVIEW_ROLL_MS = 390;
 
 // Trailing layers begin when preview is ~50% through its roll (40–60% overlap).
 export const FONT_CHANGE_TRAIL_OVERLAP_RATIO = 0.5;
@@ -35,20 +35,53 @@ export const FONT_CHANGE_CONTROLS_DURATION_MS =
 // Hold before the roll begins — beat, tick, rest.
 export const PREVIEW_ROLL_HOLD_MS = FONT_CHANGE_PREVIEW_HOLD_MS;
 
-// Snappy detent spring: fast arrival, small overshoot, quick settle.
-export const PREVIEW_ROLL_SPRING = {
-  type: "spring" as const,
-  stiffness: 520,
-  damping: 28,
-  mass: 0.85,
-};
+// Preview roll — calm odometer transition (tuning pass)
+export const PREVIEW_STIFFNESS = 360;
+export const PREVIEW_DAMPING = 42;
+export const PREVIEW_MASS = 1.25;
+export const PREVIEW_SETTLE = 0.12;
+
+// Extra stagger so incoming text follows outgoing — less aggressive overlap.
+export const PREVIEW_ROLL_ENTER_OFFSET_MS = 85;
+
+export function getPreviewRollSpring(
+  phase: "enter" | "exit" | "center" = "center",
+) {
+  const base = {
+    type: "spring" as const,
+    stiffness: PREVIEW_STIFFNESS,
+    damping: PREVIEW_DAMPING * (1 + PREVIEW_SETTLE),
+    mass: PREVIEW_MASS,
+  };
+
+  if (phase === "exit") {
+    return {
+      ...base,
+      stiffness: PREVIEW_STIFFNESS * 0.9,
+      mass: PREVIEW_MASS * 1.1,
+    };
+  }
+
+  if (phase === "enter") {
+    return {
+      ...base,
+      stiffness: PREVIEW_STIFFNESS * 0.82,
+      damping: PREVIEW_DAMPING * (1 + PREVIEW_SETTLE * 1.6),
+      mass: PREVIEW_MASS * 1.15,
+    };
+  }
+
+  return base;
+}
+
+export const PREVIEW_ROLL_SPRING = getPreviewRollSpring("center");
 
 // Container height ease when sentence line count changes.
 export const PREVIEW_HEIGHT_SPRING = {
   type: "spring" as const,
-  stiffness: 300,
-  damping: 32,
-  mass: 1,
+  stiffness: PREVIEW_STIFFNESS * 0.78,
+  damping: PREVIEW_DAMPING * (1 + PREVIEW_SETTLE),
+  mass: PREVIEW_MASS * 1.05,
 };
 
 // Font name — character resolve (split-flap style)
@@ -145,19 +178,32 @@ export const SLIDER_THUMB_FADE = {
 export const SLIDER_THUMB_WIDTH = 2;
 export const SLIDER_THUMB_INSET = 8;
 
-// Serifness toggle — sliding pill indicator
-export const SERIFNESS_PILL_SPRING = {
-  type: "spring" as const,
-  stiffness: 480,
-  damping: 30,
-  mass: 0.9,
-};
+// Serifness segmented control — weighted pill glide
+export const SEGMENT_STIFFNESS = 190;
+export const SEGMENT_DAMPING = 34;
+export const SEGMENT_MASS = 1.08;
+export const SEGMENT_SETTLE = 0.15;
+
+export const SERIFNESS_CONTAINER_RADIUS_PX = 12;
+export const SERIFNESS_PILL_RADIUS_PX = 8;
+export const SERIFNESS_PILL_INSET_PX = 4;
+
+export function getSegmentSpring() {
+  return {
+    type: "spring" as const,
+    stiffness: SEGMENT_STIFFNESS,
+    damping: SEGMENT_DAMPING * (1 + SEGMENT_SETTLE),
+    mass: SEGMENT_MASS,
+  };
+}
+
+export const SERIFNESS_PILL_SPRING = getSegmentSpring();
 
 export const SERIFNESS_LABEL_SPRING = {
   type: "spring" as const,
-  stiffness: 400,
-  damping: 32,
-  mass: 0.8,
+  stiffness: SEGMENT_STIFFNESS * 0.85,
+  damping: SEGMENT_DAMPING * (1 + SEGMENT_SETTLE * 0.8),
+  mass: SEGMENT_MASS * 0.9,
 };
 
 export const SERIFNESS_ACTIVE_COLOR = "#ffffff";
