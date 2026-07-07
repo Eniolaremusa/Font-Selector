@@ -20,6 +20,8 @@ const INITIAL_VALUES: ControlValues = {
   serifness: "Any",
 };
 
+type PreviewSource = "curated" | "custom";
+
 function fontToControlValues(font: FontEntry): ControlValues {
   return {
     warmth: font.warmth,
@@ -41,11 +43,31 @@ export function FontSelector() {
     useState<ControlValues>(INITIAL_VALUES);
   const [recentAxes, setRecentAxes] = useState<AxisKey[]>([]);
   const [choreographyToken, setChoreographyToken] = useState(0);
+  const [previewSource, setPreviewSource] = useState<PreviewSource>("curated");
+  const [customPreviewText, setCustomPreviewText] = useState("");
+  const [isPreviewEditing, setIsPreviewEditing] = useState(false);
 
-  const displayFont = useMemo(
+  const committedFont = useMemo(
     () => matchFont(committedValues, recentAxes),
     [committedValues, recentAxes],
   );
+
+  const liveFont = useMemo(
+    () => matchFont(values, recentAxes),
+    [values, recentAxes],
+  );
+
+  const usesLivePreview = isPreviewEditing || previewSource === "custom";
+  const previewFont = usesLivePreview ? liveFont : committedFont;
+  const previewText =
+    previewSource === "custom" ? customPreviewText : committedFont.sentence;
+  const enablePreviewRoll = previewSource === "curated" && !isPreviewEditing;
+
+  const resetPreviewToCurated = () => {
+    setIsPreviewEditing(false);
+    setPreviewSource("curated");
+    setCustomPreviewText("");
+  };
 
   const handleChoreographyInterrupt = () => {
     setChoreographyToken(0);
@@ -56,6 +78,7 @@ export function FontSelector() {
   };
 
   const handleAxisCommit = (axis: AxisKey, value: number) => {
+    resetPreviewToCurated();
     setChoreographyToken(0);
     setValues((current) => {
       const nextValues = { ...current, [axis]: value };
@@ -70,6 +93,7 @@ export function FontSelector() {
   };
 
   const handleSerifnessChange = (serifness: ControlValues["serifness"]) => {
+    resetPreviewToCurated();
     setChoreographyToken(0);
     setValues((current) => {
       const next = { ...current, serifness };
@@ -80,6 +104,7 @@ export function FontSelector() {
   };
 
   const applyFontProgrammatically = (font: FontEntry) => {
+    resetPreviewToCurated();
     const nextValues = fontToControlValues(font);
     setRecentAxes([]);
     setChoreographyToken((current) => current + 1);
@@ -102,10 +127,34 @@ export function FontSelector() {
     applyFontProgrammatically(pairedFont);
   };
 
+  const handlePreviewStartEdit = () => {
+    if (previewSource !== "custom") {
+      setCustomPreviewText(committedFont.sentence);
+    }
+    setPreviewSource("custom");
+    setIsPreviewEditing(true);
+  };
+
+  const handlePreviewTextChange = (text: string) => {
+    setCustomPreviewText(text);
+  };
+
+  const handlePreviewEndEdit = (text: string) => {
+    setIsPreviewEditing(false);
+    setCustomPreviewText(text);
+    setPreviewSource("custom");
+  };
+
   return (
     <div className="flex w-full max-w-[800px] flex-col">
       <FontPreview
-        font={displayFont}
+        font={previewFont}
+        previewText={previewText}
+        isPreviewEditing={isPreviewEditing}
+        enablePreviewRoll={enablePreviewRoll}
+        onPreviewStartEdit={handlePreviewStartEdit}
+        onPreviewTextChange={handlePreviewTextChange}
+        onPreviewEndEdit={handlePreviewEndEdit}
         onSurpriseMe={handleSurpriseMe}
         onPairsWith={handlePairsWith}
       />

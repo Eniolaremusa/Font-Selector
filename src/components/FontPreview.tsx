@@ -15,12 +15,24 @@ import { SurpriseMeButton } from "./SurpriseMeButton";
 
 type FontPreviewProps = {
   font: FontEntry;
+  previewText: string;
+  isPreviewEditing: boolean;
+  enablePreviewRoll: boolean;
+  onPreviewStartEdit: () => void;
+  onPreviewTextChange: (text: string) => void;
+  onPreviewEndEdit: (text: string) => void;
   onSurpriseMe: () => void;
   onPairsWith?: (fontName: string) => void;
 };
 
 export function FontPreview({
   font,
+  previewText,
+  isPreviewEditing,
+  enablePreviewRoll,
+  onPreviewStartEdit,
+  onPreviewTextChange,
+  onPreviewEndEdit,
   onSurpriseMe,
   onPairsWith,
 }: FontPreviewProps) {
@@ -46,7 +58,15 @@ export function FontPreview({
         </div>
 
         <div className="mx-auto flex w-full max-w-[700px] flex-col items-center gap-3">
-          <AnimatedSampleText font={font} />
+          <AnimatedSampleText
+            font={font}
+            text={previewText}
+            isEditing={isPreviewEditing}
+            enableRoll={enablePreviewRoll}
+            onStartEdit={() => onPreviewStartEdit()}
+            onTextChange={onPreviewTextChange}
+            onEndEdit={onPreviewEndEdit}
+          />
 
           <ResolvingText
             text={font.pairsWith}

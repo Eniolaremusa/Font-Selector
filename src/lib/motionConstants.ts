@@ -76,6 +76,18 @@ export function getPreviewRollSpring(
 
 export const PREVIEW_ROLL_SPRING = getPreviewRollSpring("center");
 
+export const PREVIEW_PLACEHOLDER_TEXT = "Use your words";
+
+export const PREVIEW_EDIT_ENTER_TRANSITION = {
+  duration: 0.15,
+  ease: "easeOut" as const,
+};
+
+export const PREVIEW_EDIT_EXIT_TRANSITION = {
+  duration: 0.18,
+  ease: "easeOut" as const,
+};
+
 // Container height ease when sentence line count changes.
 export const PREVIEW_HEIGHT_SPRING = {
   type: "spring" as const,
